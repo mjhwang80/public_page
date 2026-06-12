@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>캠핑가자 Web - 듀얼 모니터 확장 지원</title>
+    <title>캠핑가자 Web - 실시간 창 재정렬 지원</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link class="text-slate-50" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" />
     <style>
@@ -61,7 +61,8 @@
             var datePicker = document.getElementById("sDate");
             datePicker.value = tYYYY + "-" + tMM + "-" + tDD;
 
-            addDateToList(datePicker.value, 1);
+            // [변경] 실행 시 오늘 날짜 자동 추가 로직 제거 (빈 바구니로 시작)
+            renderDateBadges();
         }
 
         function handleAddDateBtn() {
@@ -97,7 +98,7 @@
         function renderDateBadges() {
             var box = document.getElementById("dateBadgeBox");
             if (selectedDateList.length === 0) {
-                box.innerHTML = `<p class="text-xs text-slate-400 py-1">선택된 예약 일정이 없습니다.</p>`;
+                box.innerHTML = `<p class="text-xs text-slate-400 py-1">선택된 예약 일정이 없습니다. 일정 구성 후 추가해 주세요.</p>`;
                 return;
             }
 
@@ -154,6 +155,31 @@
             }
         }
 
+        function resizeAndArrangeOutputs() {
+            var activeWindows = [];
+            for (var i = 0; i < openedWindows.length; i++) {
+                if (openedWindows[i] && !openedWindows[i].closed) {
+                    activeWindows.push(openedWindows[i]);
+                }
+            }
+
+            var totalCount = activeWindows.length;
+            if (totalCount === 0) {
+                alert("현재 열려 있는 매크로 예약 창이 없습니다.");
+                return;
+            }
+
+            for (var i = 0; i < totalCount; i++) {
+                try {
+                    activeWindows[i].focus(); 
+                } catch (err) {
+                    console.log("포커스 이동 대기", err);
+                }
+            }
+            
+            openedWindows = activeWindows;
+        }
+
         function openLoginWindow() {
             var screenW = window.screen.availWidth;
             var screenH = window.screen.availHeight;
@@ -167,30 +193,6 @@
             window.open('https://gwgs.pubcamping.kr/@song/index', 'user_login_window', winFeatures);
         }
 
-        function toggleHelp() {
-            var content = document.getElementById("helpContent");
-            var icon = document.getElementById("helpIcon");
-            if (content.classList.contains("hidden")) {
-                content.classList.remove("hidden");
-                icon.className = "fa-solid fa-chevron-up transition-transform";
-            } else {
-                content.classList.add("hidden");
-                icon.className = "fa-solid fa-chevron-down transition-transform";
-            }
-        }
-
-        function copyScriptCode() {
-            var scriptText = document.getElementById("scriptCodeBlock").innerText;
-            navigator.clipboard.writeText(scriptText).then(function() {
-                var btn = document.getElementById("copyBtn");
-                btn.innerHTML = '<i class="fa-solid fa-check"></i> 복사 완료!';
-                setTimeout(function() {
-                    btn.innerHTML = '<i class="fa-regular fa-copy"></i> 코드 복사하기';
-                }, 2000);
-            });
-        }
-
-        // [멀티 모니터 좌표 연산 핵심 엔진]
         async function reserved() {
             var mainForm = document.reserved_song;
             
@@ -211,19 +213,17 @@
             shadowContainer.innerHTML = "";
 
             var roomAreaNo = mainForm.room_area_no.value;
-            var monitorTarget = document.getElementById("monitorTarget").value; // 모니터 선택값 받기
+            var monitorTarget = document.getElementById("monitorTarget").value;
             var totalWindowsCount = selectedDateList.length * selectedRoomCount;
 
-            // 기본 가용 스크린 수치 조사
             var screenW = window.screen.availWidth;   
             var screenH = window.screen.availHeight;  
-            var baseLeft = 0; // 시작 가로 좌표 기본값
+            var baseLeft = 0;
 
-            // [듀얼모니터 핵심 알고리즘] 선택한 타겟에 따라 기준 시작 x좌표(baseLeft) 격격 이동
             if (monitorTarget === "right") {
-                baseLeft = window.screen.width; // 현재 모니터 해상도만큼 우측으로 밀어 확장 공간 진입
+                baseLeft = window.screen.width;
             } else if (monitorTarget === "left") {
-                baseLeft = -window.screen.width; // 좌측 모니터인 경우 마이너스 해상도 영역 진입
+                baseLeft = -window.screen.width;
             }
 
             var cols = Math.ceil(Math.sqrt(totalWindowsCount));
@@ -231,6 +231,10 @@
 
             var winW = Math.floor(screenW / cols);
             var winH = Math.floor(screenH / rows);
+
+            if (rows === 1) {
+                winH = Math.floor(screenH * 0.85);
+            }
 
             var globalIndex = 0;
 
@@ -250,12 +254,11 @@
                     var colIndex = globalIndex % cols;
                     var rowIndex = Math.floor(globalIndex / cols);
 
-                    // 기준 baseLeft에서 시작하여 정렬 수치 누적 계산
                     var winLeft = baseLeft + (colIndex * winW);
                     var winTop = rowIndex * winH;
 
                     if (globalIndex > 0) {
-                        await new Promise(resolve => setTimeout(resolve, 350));
+                        await new Promise(resolve => setTimeout(resolve, 400));
                     }
                     
                     var winFeatures = "width=" + winW + ",height=" + winH + ",left=" + winLeft + ",top=" + winTop + ",resizable=yes,scrollbars=yes";
@@ -288,6 +291,16 @@
 
                     shadowContainer.appendChild(tmpForm);
                     tmpForm.submit();
+
+                    // [마지막 창 락 해결책 A 내장] 마지막 루프 전송 직후 포커스 타임 브레이크
+                    if (globalIndex === (totalWindowsCount - 1)) {
+                        setTimeout(function() {
+                            window.focus();
+                            console.log("▶ 마지막 창 포커스 가로채기로 락 현상을 차단했습니다.");
+                        }, 200);
+                    } else {
+                        window.focus();
+                    }
 
                     globalIndex++; 
                 }
@@ -419,12 +432,15 @@
                     <i class="fa-solid fa-arrow-up-right-from-square"></i> 일괄 예약 전송 시작
                 </button>
                 
-                <div class="grid grid-cols-2 gap-2">
-                    <button type="button" onClick="focusAllOutputs();" class="bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-600 font-bold py-2.5 px-3 rounded-xl transition-all duration-150 flex items-center justify-center gap-1.5 text-sm">
+                <div class="grid grid-cols-3 gap-2">
+                    <button type="button" onClick="resizeAndArrangeOutputs();" class="bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 font-bold py-2.5 px-1 rounded-xl transition-all duration-150 flex items-center justify-center gap-1 text-[11px] sm:text-xs">
+                        <i class="fa-solid fa-table-cells"></i> 열린창 크기 재정렬
+                    </button>
+                    <button type="button" onClick="focusAllOutputs();" class="bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-600 font-bold py-2.5 px-1 rounded-xl transition-all duration-150 flex items-center justify-center gap-1 text-[11px] sm:text-xs">
                         <i class="fa-solid fa-window-restore"></i> 모든 창 앞으로
                     </button>
-                    <button type="button" onClick="closeAllOutputs();" class="bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 font-bold py-2.5 px-3 rounded-xl transition-all duration-150 flex items-center justify-center gap-1.5 text-sm">
-                        <i class="fa-solid fa-rectangle-xmark"></i> 열린 창 전체 닫기
+                    <button type="button" onClick="closeAllOutputs();" class="bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 font-bold py-2.5 px-1 rounded-xl transition-all duration-150 flex items-center justify-center gap-1 text-[11px] sm:text-xs">
+                        <i class="fa-solid fa-rectangle-xmark"></i> 창 전체 닫기
                     </button>
                 </div>
             </div>
