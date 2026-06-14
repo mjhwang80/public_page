@@ -280,162 +280,159 @@
                 window.open("https://gwgs.pubcamping.kr/@song/index", "user_login_window", winFeatures);
             }
 
-            // ⚡ [완전 개편] 스레드 락 및 데이터 로딩 차단 차단 솔루션 엔진
-            async function reserved() {
-                var mainForm = document.reserved_song;
+            // ⚡ [완전 개편] 스레드 락 및 데이터 로딩 차단 완벽 파괴 솔루션 엔진
+async function reserved() {
+    var mainForm = document.reserved_song;
 
-                if (selectedDateList.length === 0) {
-                    alert("예약하실 체크인 일정을 최소 1개 이상 추가해 주세요.");
-                    return;
+    if (selectedDateList.length === 0) {
+        alert("예약하실 체크인 일정을 최소 1개 이상 추가해 주세요.");
+        return;
+    }
+
+    var checkboxes = document.querySelectorAll('input[name="roomNoArr"]:checked');
+    var selectedRoomCount = checkboxes.length;
+
+    if (selectedRoomCount === 0) {
+        alert("예약하실 사이트를 최소 1개 이상 선택해주세요.");
+        return;
+    }
+
+    var shadowContainer = document.getElementById("shadowContainer");
+    shadowContainer.innerHTML = "";
+
+    var roomAreaNo = mainForm.room_area_no.value;
+    var monitorTarget = document.getElementById("monitorTarget").value;
+    var totalWindowsCount = selectedDateList.length * selectedRoomCount;
+
+    var targetLeft = window.screenLeft !== undefined ? window.screenLeft : window.screenX;
+    var targetTop = window.screenTop !== undefined ? window.screenTop : window.screenY;
+    var targetWidth = window.screen.availWidth;
+    var targetHeight = window.screen.availHeight;
+
+    if (window.getScreenDetails) {
+        try {
+            var screenDetails = await window.getScreenDetails();
+            var currentScreen = screenDetails.currentScreen;
+            var allScreens = screenDetails.screens;
+
+            if (allScreens.length > 1) {
+                var currentIndex = allScreens.indexOf(currentScreen);
+                var targetScreen = currentScreen;
+
+                if (monitorTarget === "right" && currentIndex < allScreens.length - 1) {
+                    targetScreen = allScreens[currentIndex + 1];
+                } else if (monitorTarget === "left" && currentIndex > 0) {
+                    targetScreen = allScreens[currentIndex - 1];
+                } else if (monitorTarget !== "main") {
+                    targetScreen = allScreens.find((s) => s !== currentScreen) || currentScreen;
                 }
 
-                var checkboxes = document.querySelectorAll('input[name="roomNoArr"]:checked');
-                var selectedRoomCount = checkboxes.length;
-
-                if (selectedRoomCount === 0) {
-                    alert("예약하실 사이트를 최소 1개 이상 선택해주세요.");
-                    return;
-                }
-
-                var shadowContainer = document.getElementById("shadowContainer");
-                shadowContainer.innerHTML = "";
-
-                var roomAreaNo = mainForm.room_area_no.value;
-                var monitorTarget = document.getElementById("monitorTarget").value;
-                var totalWindowsCount = selectedDateList.length * selectedRoomCount;
-
-                var targetLeft = window.screenLeft !== undefined ? window.screenLeft : window.screenX;
-                var targetTop = window.screenTop !== undefined ? window.screenTop : window.screenY;
-                var targetWidth = window.screen.availWidth;
-                var targetHeight = window.screen.availHeight;
-
-                if (window.getScreenDetails) {
-                    try {
-                        var screenDetails = await window.getScreenDetails();
-                        var currentScreen = screenDetails.currentScreen;
-                        var allScreens = screenDetails.screens;
-
-                        if (allScreens.length > 1) {
-                            var currentIndex = allScreens.indexOf(currentScreen);
-                            var targetScreen = currentScreen;
-
-                            if (monitorTarget === "right" && currentIndex < allScreens.length - 1) {
-                                targetScreen = allScreens[currentIndex + 1];
-                            } else if (monitorTarget === "left" && currentIndex > 0) {
-                                targetScreen = allScreens[currentIndex - 1];
-                            } else if (monitorTarget !== "main") {
-                                targetScreen = allScreens.find((s) => s !== currentScreen) || currentScreen;
-                            }
-
-                            targetLeft = targetScreen.availLeft;
-                            targetTop = targetScreen.availTop;
-                            targetWidth = targetScreen.availWidth;
-                            targetHeight = targetScreen.availHeight;
-                        }
-                    } catch (e) {
-                        console.warn("다중 모니터 API 접근 거부 또는 에러, 기본 좌표계로 전환합니다.", e);
-                        if (monitorTarget === "right") targetLeft += window.screen.width;
-                        if (monitorTarget === "left") targetLeft -= window.screen.width;
-                    }
-                } else {
-                    if (monitorTarget === "right") targetLeft += window.screen.width;
-                    if (monitorTarget === "left") targetLeft -= window.screen.width;
-                }
-
-                var cols = Math.ceil(Math.sqrt(totalWindowsCount));
-                var rows = Math.ceil(totalWindowsCount / cols);
-
-                var winW = Math.floor(targetWidth / cols);
-                var winH = Math.floor(targetHeight / rows);
-
-                if (rows === 1) {
-                    winH = Math.floor(targetHeight * 0.85);
-                }
-
-                const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-                // 1단계 태스크 매핑 객체 빌드
-                var taskSchedules = [];
-                for (var d = 0; d < selectedDateList.length; d++) {
-                    var schedule = selectedDateList[d];
-                    for (var r = 0; r < checkboxes.length; r++) {
-                        taskSchedules.push({
-                            schedule: schedule,
-                            roomNo: checkboxes[r].value
-                        });
-                    }
-                }
-
-                // ⚡ [혁신 구조 변경 점 1] 모든 물리 창을 약 40ms 단위로 초고속 선제 생성 (about:blank 상태)
-                // 이렇게 핸들을 먼저 확보해야 브라우저 멀티프로세싱이 독립 실행 모드로 진입합니다.
-                for (var i = 0; i < taskSchedules.length; i++) {
-                    var item = taskSchedules[i];
-                    var currentCheckInStr = item.schedule.date;
-                    var pureCheckIn = currentCheckInStr.replace(/-/g, "");
-                    var popupTarget = "macro_target_" + pureCheckIn + "_room_" + item.roomNo;
-
-                    var colIndex = i % cols;
-                    var rowIndex = Math.floor(i / cols);
-                    var winLeft = targetLeft + colIndex * winW;
-                    var winTop = targetTop + rowIndex * winH;
-                    var winFeatures = "width=" + winW + ",height=" + winH + ",left=" + winLeft + ",top=" + winTop + ",resizable=yes,scrollbars=yes";
-
-                    var winObj = window.open("about:blank", popupTarget, winFeatures);
-                    if (winObj) {
-                        openedWindows.push(winObj);
-                    }
-                    await delay(40); // 최소한의 OS 윈도우 생성 마진
-                }
-
-                // 브라우저 윈도우 매핑 레이어가 온전히 정착하도록 잠깐 숨쉬기 기회 부여
-                await delay(150);
-
-                // ⚡ [혁신 구조 변경 점 2] 확보된 핸들을 향해 폼 전송(submit)을 비동기 타임아웃 큐로 독립 발송
-                // 서브밋 연산 스레드 분리를 통해 이전 창들이 마지막 얼럿에 발목 잡히지 않고 즉시 로딩을 시작합니다.
-                taskSchedules.forEach(function (item, idx) {
-                    setTimeout(function () {
-                        var currentCheckInStr = item.schedule.date;
-                        var pureCheckIn = currentCheckInStr.replace(/-/g, "");
-                        var stayCnt = item.schedule.stay;
-                        var pureCheckOut = calculateCheckOut(currentCheckInStr, stayCnt);
-                        var popupTarget = "macro_target_" + pureCheckIn + "_room_" + item.roomNo;
-
-                        var tmpForm = document.createElement("form");
-                        tmpForm.method = "POST";
-                        tmpForm.action = "https://gwgs.pubcamping.kr/@song/reservation";
-                        tmpForm.target = popupTarget;
-
-                        var data = {
-                            check_in: pureCheckIn,
-                            check_out: pureCheckOut,
-                            room_area_no: roomAreaNo,
-                            stay_cnt: stayCnt,
-                            roomNoArr: item.roomNo
-                        };
-
-                        for (var key in data) {
-                            var hiddenInput = document.createElement("input");
-                            hiddenInput.type = "hidden";
-                            hiddenInput.name = key;
-                            hiddenInput.value = data[key];
-                            tmpForm.appendChild(hiddenInput);
-                        }
-
-                        shadowContainer.appendChild(tmpForm);
-                        tmpForm.submit();
-                    }, idx * 180); // 순차 네비게이션 부하 분산 마진 (180ms)
-                });
-
-                // 최종 포커스 안전선 정리
-                setTimeout(
-                    function () {
-                        window.focus();
-                        document.body.click();
-                        console.log("⚡ [정밀 배치 엔진] 비동기 분할 주입이 완료되어 이전 창들이 즉시 완벽 로딩됩니다.");
-                    },
-                    taskSchedules.length * 180 + 100
-                );
+                targetLeft = targetScreen.availLeft;
+                targetTop = targetScreen.availTop;
+                targetWidth = targetScreen.availWidth;
+                targetHeight = targetScreen.availHeight;
             }
+        } catch (e) {
+            console.warn("다중 모니터 API 접근 거부 또는 에러, 기본 좌표계로 전환합니다.", e);
+            if (monitorTarget === "right") targetLeft += window.screen.width;
+            if (monitorTarget === "left") targetLeft -= window.screen.width;
+        }
+    } else {
+        if (monitorTarget === "right") targetLeft += window.screen.width;
+        if (monitorTarget === "left") targetLeft -= window.screen.width;
+    }
+
+    var cols = Math.ceil(Math.sqrt(totalWindowsCount));
+    var rows = Math.ceil(totalWindowsCount / cols);
+
+    var winW = Math.floor(targetWidth / cols);
+    var winH = Math.floor(targetHeight / rows);
+
+    if (rows === 1) {
+        winH = Math.floor(targetHeight * 0.85);
+    }
+
+    const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    // 1단계 태스크 매핑 객체 빌드
+    var taskSchedules = [];
+    for (var d = 0; d < selectedDateList.length; d++) {
+        var schedule = selectedDateList[d];
+        for (var r = 0; r < checkboxes.length; r++) {
+            taskSchedules.push({
+                schedule: schedule,
+                roomNo: checkboxes[r].value
+            });
+        }
+    }
+
+    // [변경점 1] 물리 팝업창을 선제적으로 생성 (핸들 선점)
+    for (var i = 0; i < taskSchedules.length; i++) {
+        var item = taskSchedules[i];
+        var currentCheckInStr = item.schedule.date;
+        var pureCheckIn = currentCheckInStr.replace(/-/g, "");
+        var popupTarget = "macro_target_" + pureCheckIn + "_room_" + item.roomNo;
+
+        var colIndex = i % cols;
+        var rowIndex = Math.floor(i / cols);
+        var winLeft = targetLeft + colIndex * winW;
+        var winTop = targetTop + rowIndex * winH;
+        var winFeatures = "width=" + winW + ",height=" + winH + ",left=" + winLeft + ",top=" + winTop + ",resizable=yes,scrollbars=yes";
+
+        var winObj = window.open("about:blank", popupTarget, winFeatures);
+        if (winObj) {
+            openedWindows.push(winObj);
+        }
+        await delay(50); // OS 윈도우 인스턴스 생성 안정화 마진 (50ms)
+    }
+
+    // 브라우저 윈도우 매핑 레이어가 온전히 정착하도록 잠깐 숨쉬기 기회 부여
+    await delay(200);
+
+    // ⚡ [핵심 교정 핵심 포인트] 동기식 forEach를 걷어내고 순수 async/await 순차 루프로 대폭 변경
+    // 이 구조를 통해 각 창의 폼 전송이 타이머 락에 걸리지 않고 독립 프로세스로 안전하게 전송됩니다.
+    for (var idx = 0; idx < taskSchedules.length; idx++) {
+        var item = taskSchedules[idx];
+        var currentCheckInStr = item.schedule.date;
+        var pureCheckIn = currentCheckInStr.replace(/-/g, "");
+        var stayCnt = item.schedule.stay;
+        var pureCheckOut = calculateCheckOut(currentCheckInStr, stayCnt);
+        var popupTarget = "macro_target_" + pureCheckIn + "_room_" + item.roomNo;
+
+        var tmpForm = document.createElement("form");
+        tmpForm.method = "POST";
+        tmpForm.action = "https://gwgs.pubcamping.kr/@song/reservation";
+        tmpForm.target = popupTarget;
+
+        var data = {
+            check_in: pureCheckIn,
+            check_out: pureCheckOut,
+            room_area_no: roomAreaNo,
+            stay_cnt: stayCnt,
+            roomNoArr: item.roomNo
+        };
+
+        for (var key in data) {
+            var hiddenInput = document.createElement("input");
+            hiddenInput.type = "hidden";
+            hiddenInput.name = key;
+            hiddenInput.value = data[key];
+            tmpForm.appendChild(hiddenInput);
+        }
+
+        shadowContainer.appendChild(tmpForm);
+        tmpForm.submit();
+
+        // 다음 창 폼 전송 전 물리적 네트워크 인터벌 지연 부여 (자바의 Thread.sleep 역할)
+        await delay(220); 
+    }
+
+    // 최종 포커스 안전선 정리
+    await delay(100);
+    window.focus();
+    document.body.click();
+    console.log("⚡ [정밀 배치 엔진] 비동기 분할 주입이 완료되어 이전 창들이 즉시 완벽 로딩됩니다.");
+}
 
             function toggleHelp() {
                 var content = document.getElementById("helpContent");
